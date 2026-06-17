@@ -90,15 +90,11 @@ if (process.env.NODE_ENV === 'production') {
 
 // CORS - Strict in production
 const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? ['https://velric-london.netlify.app',process.env.CLIENT_URL].filter(Boolean)
+  ? ['https://velric-london.netlify.app','https://velriclondon.netlify.app/','https://*.netlify.app','https://velric-london.onrender.com',process.env.CLIENT_URL].filter(Boolean)
   : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://127.0.0.1:3000'];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin && process.env.NODE_ENV !== 'production') callback(null, true);
-    else if (allowedOrigins.indexOf(origin) !== -1) callback(null, true);
-    else callback(new Error('Not allowed by CORS'));
-  },
+  origin: process.env.NODE_ENV ==='production' ? true : allowedOrigins,
   credentials: true
 }));
 
