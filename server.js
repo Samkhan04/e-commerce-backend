@@ -90,8 +90,8 @@ if (process.env.NODE_ENV === 'production') {
 
 // CORS - Strict in production
 const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [process.env.CLIENT_URL].filter(Boolean)
-  : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://127.0.0.1:3000', process.env.CLIENT_URL].filter(Boolean);
+  ? ['https://velric-london.netlify.app',process.env.CLIENT_URL].filter(Boolean)
+  : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://127.0.0.1:3000'];
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -133,7 +133,7 @@ app.use(hpp());
 if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));
 
 // Static files
-app.use(express.static(path.join(__dirname, '../frontend')));
+//app.use(express.static(path.join(__dirname, '../frontend')));
 
 // Visitor tracking
 app.use(trackVisitor);
@@ -257,7 +257,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+  res.json({ message: 'Velric London API is running', status: 'OK'});
 });
 
 // 404 handler
