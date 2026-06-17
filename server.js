@@ -88,15 +88,37 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// CORS - Strict in production
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? ['https://velric-london.netlify.app','https://velriclondon.netlify.app/','https://*.netlify.app','https://velric-london.onrender.com',process.env.CLIENT_URL].filter(Boolean)
-  : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://127.0.0.1:3000'];
-
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+// ============================================
+// CORS - ALLOW NETLIFY + LOCAL
+// ============================================
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://velric-london.netlify.app',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500',
+    'http://localhost:3000'
+  ];
+  
+  const origin = req.headers.origin;
+  
+  // Allow specific origins OR allow all (for debugging)
+  if (allowedOrigins.includes(origin) || !origin) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  } else {
+    res.header('Access-Control-Allow-Origin', '*'); // Fallback
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 // Rate Limiting
 const limiter = rateLimit({
