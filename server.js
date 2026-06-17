@@ -12,7 +12,6 @@ const mongoSanitize = require('express-mongo-sanitize');
 const mongoose = require('mongoose');
 const hpp = require('hpp');
 const compression = require('compression');
-const { sendEmail } = require('./utils/email');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -54,6 +53,42 @@ try {
 const app = express();
 
 // ============================
+// CORS - FIRST & FOREMOST (Fixed for Netlify/Render)
+// ============================
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://velric-london.netlify.app',
+    'https://*.netlify.app',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+  ];
+  
+  const origin = req.headers.origin;
+  
+  // Allow specific origins or all for debugging
+  if (origin && (allowedOrigins.includes(origin) || origin.includes('netlify.app') || origin.includes('render.com'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+  
+  next();
+});
+
+// ============================
 // GLOBAL MIDDLEWARE
 // ============================
 app.use(compression());
@@ -70,7 +105,7 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
       scriptSrc: ["'self'", "'unsafe-inline'", "https://checkout.razorpay.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
       imgSrc: ["'self'", "data:", "https://placehold.co", "https://res.cloudinary.com", "https://images.unsplash.com", "blob:"],
-      connectSrc: ["'self'", "https://api.razorpay.com"],
+      connectSrc: ["'self'", "https://api.razorpay.com", "https://velric-london-api.onrender.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -88,37 +123,13 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// ============================================
-// CORS - ALLOW NETLIFY + LOCAL
-// ============================================
-app.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://velric-london.netlify.app',
-    'http://localhost:5500',
-    'http://127.0.0.1:5500',
-    'http://localhost:3000'
-  ];
-  
-  const origin = req.headers.origin;
-  
-  // Allow specific origins OR allow all (for debugging)
-  if (allowedOrigins.includes(origin) || !origin) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-  } else {
-    res.header('Access-Control-Allow-Origin', '*'); // Fallback
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
-});
+// CORS - Additional layer (backup)
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 
 // Rate Limiting
 const limiter = rateLimit({
@@ -149,9 +160,6 @@ app.use(mongoSanitize());
 app.use(hpp());
 
 if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));
-
-// Static files
-//app.use(express.static(path.join(__dirname, '../frontend')));
 
 // Visitor tracking
 app.use(trackVisitor);
@@ -185,6 +193,8 @@ app.use('/api/analytics', dbCheck, analyticsRoutes);
 // ============================
 // CONTACT FORM & NEWSLETTER
 // ============================
+const { sendEmail } = require('./utils/email');
+
 app.post('/api/contact', async (req, res) => {
   try {
     const { name, email, subject, message } = req.body;
@@ -275,7 +285,12 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Velric London API is running', status: 'OK'});
+  res.json({ 
+    success: true, 
+    message: 'Velric London API is running',
+    status: 'OK',
+    endpoints: '/api/health, /api/auth, /api/products, /api/orders, etc.'
+  });
 });
 
 // 404 handler
@@ -285,25 +300,36 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  const status = err.status || 500;
-  const message = process.env.NODE_ENV === 'production'
+  console.error('ERROR:', {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    url: req.url,
+    method: req.method
+  });
+  
+  const status = err.status || err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production' && status === 500
     ? 'Something went wrong. Please try again later.'
     : (err.message || 'Internal Server Error');
-  res.status(status).json({ success: false, message });
+    
+  res.status(status).json({ 
+    success: false, 
+    message,
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
 });
 
 // ============================
 // SERVER START (HTTP + HTTPS)
 // ============================
 const PORT = process.env.PORT || 5000;
-const HTTPS_PORT = process.env.HTTPS_PORT || 5443;
 
 // HTTP Server (always start)
 const server = http.createServer(app);
 server.timeout = 30000;
 server.listen(PORT, () => {
   console.log(`🚀 Velric London HTTP server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`🌐 CORS enabled for all origins`);
 });
 
 // HTTPS Server (only if SSL certificates exist)
@@ -316,25 +342,20 @@ if (sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslC
       key: fs.readFileSync(sslKeyPath),
       cert: fs.readFileSync(sslCertPath),
     };
-    // Add CA if available
     const sslCaPath = process.env.SSL_CA_PATH;
     if (sslCaPath && fs.existsSync(sslCaPath)) {
       httpsOptions.ca = fs.readFileSync(sslCaPath);
     }
 
     const httpsServer = https.createServer(httpsOptions, app);
-    httpsServer.listen(HTTPS_PORT, () => {
-      console.log(`🔒 Velric London HTTPS server running on port ${HTTPS_PORT}`);
+    httpsServer.listen(process.env.HTTPS_PORT || 5443, () => {
+      console.log(`🔒 Velric London HTTPS server running on port ${process.env.HTTPS_PORT || 5443}`);
     });
   } catch (err) {
     console.error('❌ Failed to start HTTPS server:', err.message);
-    console.log('💡 Tip: Set SSL_KEY_PATH and SSL_CERT_PATH in .env, or use Nginx reverse proxy with SSL');
   }
 } else {
-  console.log('ℹ️  HTTPS not configured. To enable SSL:');
-  console.log("   1. Get SSL certificate (Let's Encrypt free)");
-  console.log('   2. Set SSL_KEY_PATH and SSL_CERT_PATH in .env');
-  console.log('   3. Or use Nginx reverse proxy (recommended for production)');
+  console.log('ℹ️  HTTPS not configured. Using HTTP only (Render provides SSL termination)');
 }
 
 const { init } = require('./utils/socket');
