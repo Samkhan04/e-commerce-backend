@@ -12,7 +12,6 @@ const mongoSanitize = require('express-mongo-sanitize');
 const mongoose = require('mongoose');
 const hpp = require('hpp');
 const compression = require('compression');
-const { sendEmail } = require('./utils/email');
 dotenv.config({ path: path.join(__dirname, '.env') });
 const requiredEnv = ['JWT_SECRET', 'MONGODB_URI'];
 const missing = requiredEnv.filter(k => !process.env[k]);
