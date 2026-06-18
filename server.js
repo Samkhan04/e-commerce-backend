@@ -56,39 +56,46 @@ const app = express();
 // CORS - ABSOLUTE FIRST (FIXED)
 // ============================
 // 🔥 CORS sabse pehle hona chahiye, koi bhi middleware usse pehle nahi
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, server-to-server)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'https://velric-london.netlify.app',
-      'https://*.netlify.app',
-      'http://localhost:5500',
-      'http://127.0.0.1:5500',
-      'http://localhost:3000',
-      'http://127.0.0.1:3000'
-    ];
-    
-    // Check if origin is allowed
-    if (allowedOrigins.includes(origin) || 
-        origin.includes('netlify.app') || 
-        origin.includes('render.com')) {
-      callback(null, true);
-    } else {
-      // For debugging, allow all (production mein yeh hata dena)
-      console.log('CORS blocked origin:', origin);
-      callback(null, true);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-};
+// ============================
+// CORS — FIXED FOR ALL NETLIFY URLS
+// ============================
 
-app.use(cors(corsOptions));
+const allowedOrigins = [
+  'https://velric-london.netlify.app',
+  'https://*.netlify.app',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Allow all Netlify deploy previews + main URL
+  let allowOrigin = false;
+  if (!origin) {
+    allowOrigin = true;
+  } else if (allowedOrigins.includes(origin)) {
+    allowOrigin = true;
+  } else if (origin.includes('netlify.app') || origin.includes('render.com')) {
+    allowOrigin = true;
+  }
+  
+  if (origin && allowOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  
+  next();
+});
 
 // ============================
 // GLOBAL MIDDLEWARE
