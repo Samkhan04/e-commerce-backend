@@ -56,9 +56,9 @@ router.post('/', protect, async (req, res) => {
         session.endSession();
         return res.status(400).json({ success: false, message: `Product not available or insufficient stock` });
       }
-      if (product) {
-        await product.save({ session });
-      }
+      // if (product) {
+      //  await product.save({ session });
+      // }
 
       const total = product.price * qty;
       subtotal += total;
@@ -458,7 +458,5 @@ router.put('/:id/rate', protect, async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
-
 
 module.exports = router;
