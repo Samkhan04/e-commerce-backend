@@ -1,6 +1,6 @@
 const express = require('express');
 const dotenv = require('dotenv');
-const cors = require('cors');
+const cors = require('cors'); // 🔥 CORS package import karo
 const morgan = require('morgan');
 const http = require('http');
 const https = require('https');
@@ -12,7 +12,12 @@ const mongoSanitize = require('express-mongo-sanitize');
 const mongoose = require('mongoose');
 const hpp = require('hpp');
 const compression = require('compression');
+
 dotenv.config({ path: path.join(__dirname, '.env') });
+
+// ============================
+// ENV VALIDATION (CRITICAL)
+// ============================
 const requiredEnv = ['JWT_SECRET', 'MONGODB_URI'];
 const missing = requiredEnv.filter(k => !process.env[k]);
 if (missing.length > 0) {
@@ -47,47 +52,51 @@ try {
 
 const app = express();
 
-const allowedOrigins = [
-  'https://velric-london.netlify.app',
-  'https://*.netlify.app',
-  'http://localhost:5500',
-  'http://127.0.0.1:5500',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000'
-];
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Check if origin is allowed
-  let isAllowed = false;
-  if (!origin) {
-    isAllowed = true; // Server-side or same-origin
-  } else if (allowedOrigins.includes(origin)) {
-    isAllowed = true;
-  } else if (origin.includes('netlify.app') || origin.includes('render.com')) {
-    isAllowed = true;
-  }
-  
-  // Set headers for all responses
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400');
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-  
-  next();
-});
+// ============================
+// CORS - ABSOLUTE FIRST (FIXED)
+// ============================
+// 🔥 CORS sabse pehle hona chahiye, koi bhi middleware usse pehle nahi
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'https://velric-london.netlify.app',
+      'https://*.netlify.app',
+      'http://localhost:5500',
+      'http://127.0.0.1:5500',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000'
+    ];
+    
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin) || 
+        origin.includes('netlify.app') || 
+        origin.includes('render.com')) {
+      callback(null, true);
+    } else {
+      // For debugging, allow all (production mein yeh hata dena)
+      console.log('CORS blocked origin:', origin);
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
 
+app.use(cors(corsOptions));
+
+// ============================
+// GLOBAL MIDDLEWARE
+// ============================
 app.use(compression());
-app.set('trust proxy', 1);  
+app.set('trust proxy', 1);
+
+// ============================
 // SECURITY MIDDLEWARE
 // ============================
 app.use(helmet({
@@ -106,7 +115,7 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-// HTTPS Redirect in Production (works with Nginx reverse proxy)
+// HTTPS Redirect in Production
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
     if (req.headers['x-forwarded-proto'] !== 'https') {
@@ -116,6 +125,12 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// ❌ YEH PURANA CUSTOM CORS HATA DO - ab cors() package handle karega
+// app.use((req, res, next) => { ... });
+// ❌ YEH BHI HATA DO
+// app.use(cors({ origin: true, credentials: true, ... }));
+
+// Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
@@ -145,8 +160,6 @@ app.use(hpp());
 
 if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));
 
-
-
 // Visitor tracking
 app.use(trackVisitor);
 
@@ -161,6 +174,9 @@ const dbCheck = (req, res, next) => {
   next();
 };
 
+// ============================
+// ROUTES
+// ============================
 app.use('/api/auth', dbCheck, authRoutes);
 app.use('/api/products', dbCheck, productRoutes);
 app.use('/api/orders', dbCheck, orderRoutes);
@@ -173,6 +189,9 @@ app.use('/api/otp', dbCheck, otpRoutes);
 app.use('/api/returns', dbCheck, returnRoutes);
 app.use('/api/analytics', dbCheck, analyticsRoutes);
 
+// ============================
+// CONTACT FORM & NEWSLETTER
+// ============================
 const { sendEmail } = require('./utils/email');
 
 app.post('/api/contact', async (req, res) => {
@@ -303,7 +322,6 @@ app.use((err, req, res, next) => {
 // SERVER START (HTTP + HTTPS)
 // ============================
 const PORT = process.env.PORT || 5000;
-const HTTPS_PORT = process.env.HTTPS_PORT || 5443;
 
 // HTTP Server (always start)
 const server = http.createServer(app);
@@ -323,7 +341,6 @@ if (sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslC
       key: fs.readFileSync(sslKeyPath),
       cert: fs.readFileSync(sslCertPath),
     };
-
     const sslCaPath = process.env.SSL_CA_PATH;
     if (sslCaPath && fs.existsSync(sslCaPath)) {
       httpsOptions.ca = fs.readFileSync(sslCaPath);
@@ -335,7 +352,6 @@ if (sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslC
     });
   } catch (err) {
     console.error('❌ Failed to start HTTPS server:', err.message);
-    console.log('💡 Tip: Set SSL_KEY_PATH and SSL_CERT_PATH in .env, or use Nginx reverse proxy with SSL');
   }
 } else {
   console.log('ℹ️  HTTPS not configured. Using HTTP only (Render provides SSL termination)');
