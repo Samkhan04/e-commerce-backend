@@ -14,10 +14,6 @@ const hpp = require('hpp');
 const compression = require('compression');
 const { sendEmail } = require('./utils/email');
 dotenv.config({ path: path.join(__dirname, '.env') });
-
-// ============================
-// ENV VALIDATION (CRITICAL)
-// ============================
 const requiredEnv = ['JWT_SECRET', 'MONGODB_URI'];
 const missing = requiredEnv.filter(k => !process.env[k]);
 if (missing.length > 0) {
@@ -52,15 +48,6 @@ try {
 
 const app = express();
 
-// ============================
-// CORS - FIXED FOR RENDER/NETLIFY
-// ============================
-
-// CORS must be FIRST - before any other middleware
-// ============================
-// CORS - FIXED FOR NETLIFY/RENDER DEPLOYMENT
-// ============================
-
 const allowedOrigins = [
   'https://velric-london.netlify.app',
   'https://*.netlify.app',
@@ -69,8 +56,6 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000'
 ];
-
-// CORS must be FIRST middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
@@ -102,9 +87,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ============================
-// GLOBAL MIDDLEWARE
-// ============================
 app.use(compression());
 app.set('trust proxy', 1);  
 // SECURITY MIDDLEWARE
@@ -135,15 +117,6 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// CORS - Additional layer (backup)
-//app.use(cors({
-//  origin: true,
-//  credentials: true,
-//  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-//  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-//}));
-
-// Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
@@ -189,9 +162,6 @@ const dbCheck = (req, res, next) => {
   next();
 };
 
-// ============================
-// ROUTES
-// ============================
 app.use('/api/auth', dbCheck, authRoutes);
 app.use('/api/products', dbCheck, productRoutes);
 app.use('/api/orders', dbCheck, orderRoutes);
@@ -204,9 +174,6 @@ app.use('/api/otp', dbCheck, otpRoutes);
 app.use('/api/returns', dbCheck, returnRoutes);
 app.use('/api/analytics', dbCheck, analyticsRoutes);
 
-// ============================
-// CONTACT FORM & NEWSLETTER
-// ============================
 const { sendEmail } = require('./utils/email');
 
 app.post('/api/contact', async (req, res) => {
