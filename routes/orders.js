@@ -56,9 +56,6 @@ router.post('/', protect, async (req, res) => {
         session.endSession();
         return res.status(400).json({ success: false, message: `Product not available or insufficient stock` });
       }
-      // if (product) {
-      //  await product.save({ session });
-      // }
 
       const total = product.price * qty;
       subtotal += total;
@@ -95,7 +92,8 @@ router.post('/', protect, async (req, res) => {
     const gst = 0;
     const totalAmount = subtotal + shippingFee + platformFee - discount;
 
-    const [order] = await Order.create([{
+    // ✅ FIXED: new Order() + save() instead of Order.create()
+    const order = new Order({
       user: req.user._id,
       items: orderItems,
       subtotal,
@@ -109,9 +107,16 @@ router.post('/', protect, async (req, res) => {
       shippingAddress: shippingAddress || { fullName: req.user.name, phone: req.user.phone || '', addressLine1: '', city: '', state: '', pincode: '' },
       notes: notes || '',
       estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
-    }], { session });
+    });
 
-    await User.findByIdAndUpdate(req.user._id, { $inc: { loyaltyPoints: Math.floor(totalAmount / 20) } }, { session });
+    await order.save({ session });
+
+    // ✅ FIXED: Added new: true
+    await User.findByIdAndUpdate(
+      req.user._id, 
+      { $inc: { loyaltyPoints: Math.floor(totalAmount / 20) } }, 
+      { session, new: true }
+    );
 
     await session.commitTransaction();
     session.endSession();
@@ -127,7 +132,6 @@ router.post('/', protect, async (req, res) => {
       console.log('✅ New order notification sent to admin');
     } catch (e) {
       console.error('❌ Order email failed:', e.message);
-      // Don't fail the order if email fails
     }
 
     emitOrderUpdate(req.user._id, order);
