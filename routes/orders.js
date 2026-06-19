@@ -19,6 +19,14 @@ router.post('/', protect, async (req, res) => {
 
   try {
     const { items, shippingAddress, paymentMethod, couponCode, notes } = req.body;
+    
+    console.log('🛒 ORDER REQUEST:', {
+      itemsCount: items?.length,
+      user: req.user._id,
+      coupon: couponCode,
+      paymentMethod
+    });
+
     if (!items || !Array.isArray(items) || items.length === 0) {
       await session.abortTransaction();
       session.endSession();
@@ -28,21 +36,31 @@ router.post('/', protect, async (req, res) => {
     let subtotal = 0;
     const orderItems = [];
 
-    for (const item of items) {
-      let productId = item.productId || item.id || item._id;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let productId = item.productId || item.id || item._id || item.product;
+      
+      console.log(`📦 Processing item ${i}:`, { productId, qty: item.quantity });
+      
       if (!productId) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json({ success: false, message: 'Missing product ID' });
+        return res.status(400).json({ success: false, message: `Missing product ID at item ${i}` });
       }
+      
       if (typeof productId === 'object') productId = productId.toString();
       if (!mongoose.Types.ObjectId.isValid(productId)) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json({ success: false, message: 'Invalid product ID' });
+        return res.status(400).json({ success: false, message: `Invalid product ID: ${productId}` });
       }
 
       const qty = parseInt(item.quantity) || 1;
+      if (qty < 1) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ success: false, message: 'Invalid quantity' });
+      }
 
       // ATOMIC stock decrement
       const product = await Product.findOneAndUpdate(
@@ -54,7 +72,10 @@ router.post('/', protect, async (req, res) => {
       if (!product) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json({ success: false, message: `Product not available or insufficient stock` });
+        return res.status(400).json({ 
+          success: false, 
+          message: `Product ${productId} not available or insufficient stock. Available stock may be less than ${qty}.` 
+        });
       }
 
       const total = product.price * qty;
@@ -72,46 +93,64 @@ router.post('/', protect, async (req, res) => {
 
     let discount = 0;
     let appliedCoupon = null;
+    
     if (couponCode) {
+      console.log('🏷️ Applying coupon:', couponCode);
       const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() }).session(session);
-      if (coupon && coupon.isValid() && subtotal >= coupon.minOrderAmount) {
-        if (coupon.discountType === 'percentage') {
-          discount = (subtotal * coupon.discountValue) / 100;
-          if (coupon.maxDiscount && discount > coupon.maxDiscount) discount = coupon.maxDiscount;
-        } else if (coupon.discountType === 'fixed') {
-          discount = coupon.discountValue;
+      
+      if (coupon) {
+        console.log('✅ Coupon found:', coupon.code, 'Valid:', coupon.isValid());
+        if (coupon.isValid() && subtotal >= coupon.minOrderAmount) {
+          if (coupon.discountType === 'percentage') {
+            discount = (subtotal * coupon.discountValue) / 100;
+            if (coupon.maxDiscount && discount > coupon.maxDiscount) discount = coupon.maxDiscount;
+          } else if (coupon.discountType === 'fixed') {
+            discount = coupon.discountValue;
+          }
+          coupon.usageCount++;
+          await coupon.save({ session });
+          appliedCoupon = coupon.code;
+          console.log('✅ Coupon applied. Discount:', discount);
+        } else {
+          console.log('❌ Coupon invalid or min order not met');
         }
-        coupon.usageCount++;
-        await coupon.save({ session });
-        appliedCoupon = coupon.code;
+      } else {
+        console.log('❌ Coupon not found:', couponCode);
       }
     }
 
     const shippingFee = subtotal > 999 ? 0 : 50;
-    const platformFee = 0;
-    const gst = 0;
-    const totalAmount = subtotal + shippingFee + platformFee - discount;
+    const totalAmount = subtotal + shippingFee - discount;
 
-    // ✅ FIXED: new Order() + save() instead of Order.create()
+    console.log('💰 Order summary:', { subtotal, shippingFee, discount, totalAmount });
+
+    // ✅ FIXED: Use new Order() + save() instead of Order.create()
     const order = new Order({
       user: req.user._id,
       items: orderItems,
       subtotal,
       shippingFee,
-      platformFee,
-      gst,
+      platformFee: 0,
+      gst: 0,
       discount,
       totalAmount,
       couponCode: appliedCoupon,
       paymentMethod: paymentMethod || 'cod',
-      shippingAddress: shippingAddress || { fullName: req.user.name, phone: req.user.phone || '', addressLine1: '', city: '', state: '', pincode: '' },
+      shippingAddress: shippingAddress || { 
+        fullName: req.user.name, 
+        phone: req.user.phone || '', 
+        addressLine1: '', 
+        city: '', 
+        state: '', 
+        pincode: '' 
+      },
       notes: notes || '',
       estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
     });
 
     await order.save({ session });
+    console.log('✅ Order saved:', order.orderNumber);
 
-    // ✅ FIXED: Added new: true
     await User.findByIdAndUpdate(
       req.user._id, 
       { $inc: { loyaltyPoints: Math.floor(totalAmount / 20) } }, 
@@ -120,30 +159,29 @@ router.post('/', protect, async (req, res) => {
 
     await session.commitTransaction();
     session.endSession();
+    console.log('✅ Transaction committed');
 
-    // Send emails
+    // Send emails (non-blocking)
     try {
       const user = await User.findById(req.user._id);
       if (user && user.email) {
         await sendOrderConfirmation(user.email, order);
-        console.log('✅ Order confirmation email sent to customer');
       }
       await sendAdminNewOrder(order);
-      console.log('✅ New order notification sent to admin');
     } catch (e) {
-      console.error('❌ Order email failed:', e.message);
+      console.error('❌ Email failed:', e.message);
     }
 
     emitOrderUpdate(req.user._id, order);
     res.status(201).json({ success: true, data: order });
+    
   } catch (error) {
+    console.error('❌ ORDER ERROR:', error);
     await session.abortTransaction();
     session.endSession();
-    console.error('Order error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 router.get('/', protect, async (req, res) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
