@@ -19,7 +19,7 @@ router.post('/', protect, async (req, res) => {
 
   try {
     const { items, shippingAddress, paymentMethod, couponCode, notes } = req.body;
-    
+
     console.log('🛒 ORDER REQUEST:', {
       itemsCount: items?.length,
       user: req.user._id,
@@ -39,15 +39,15 @@ router.post('/', protect, async (req, res) => {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       let productId = item.productId || item.id || item._id || item.product;
-      
+
       console.log(`📦 Processing item ${i}:`, { productId, qty: item.quantity });
-      
+
       if (!productId) {
         await session.abortTransaction();
         session.endSession();
         return res.status(400).json({ success: false, message: `Missing product ID at item ${i}` });
       }
-      
+
       if (typeof productId === 'object') productId = productId.toString();
       if (!mongoose.Types.ObjectId.isValid(productId)) {
         await session.abortTransaction();
@@ -72,9 +72,9 @@ router.post('/', protect, async (req, res) => {
       if (!product) {
         await session.abortTransaction();
         session.endSession();
-        return res.status(400).json({ 
-          success: false, 
-          message: `Product ${productId} not available or insufficient stock. Available stock may be less than ${qty}.` 
+        return res.status(400).json({
+          success: false,
+          message: `Product ${productId} not available or insufficient stock. Available stock may be less than ${qty}.`
         });
       }
 
@@ -93,11 +93,11 @@ router.post('/', protect, async (req, res) => {
 
     let discount = 0;
     let appliedCoupon = null;
-    
+
     if (couponCode) {
       console.log('🏷️ Applying coupon:', couponCode);
       const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() }).session(session);
-      
+
       if (coupon) {
         console.log('✅ Coupon found:', coupon.code, 'Valid:', coupon.isValid());
         if (coupon.isValid() && subtotal >= coupon.minOrderAmount) {
@@ -136,13 +136,13 @@ router.post('/', protect, async (req, res) => {
       totalAmount,
       couponCode: appliedCoupon,
       paymentMethod: paymentMethod || 'cod',
-      shippingAddress: shippingAddress || { 
-        fullName: req.user.name, 
-        phone: req.user.phone || '', 
-        addressLine1: '', 
-        city: '', 
-        state: '', 
-        pincode: '' 
+      shippingAddress: shippingAddress || {
+        fullName: req.user.name,
+        phone: req.user.phone || '',
+        addressLine1: '',
+        city: '',
+        state: '',
+        pincode: ''
       },
       notes: notes || '',
       estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
@@ -152,8 +152,8 @@ router.post('/', protect, async (req, res) => {
     console.log('✅ Order saved:', order.orderNumber);
 
     await User.findByIdAndUpdate(
-      req.user._id, 
-      { $inc: { loyaltyPoints: Math.floor(totalAmount / 20) } }, 
+      req.user._id,
+      { $inc: { loyaltyPoints: Math.floor(totalAmount / 20) } },
       { session, new: true }
     );
 
@@ -161,20 +161,32 @@ router.post('/', protect, async (req, res) => {
     session.endSession();
     console.log('✅ Transaction committed');
 
-    // Send emails (non-blocking)
-    try {
-      const user = await User.findById(req.user._id);
-      if (user && user.email) {
-        await sendOrderConfirmation(user.email, order);
-      }
-      await sendAdminNewOrder(order);
-    } catch (e) {
-      console.error('❌ Email failed:', e.message);
-    }
+    // Send response immediately
+    res.status(201).json({
+      success: true,
+      data: order
+    });
 
-    emitOrderUpdate(req.user._id, order);
-    res.status(201).json({ success: true, data: order });
-    
+    // Background tasks (don't block checkout)
+    setImmediate(async () => {
+      try {
+        const user = await User.findById(req.user._id);
+
+        if (user && user.email) {
+          await sendOrderConfirmation(user.email, order);
+          console.log('✅ Customer email sent');
+        }
+
+        await sendAdminNewOrder(order);
+        console.log('✅ Admin email sent');
+
+        emitOrderUpdate(req.user._id, order);
+
+      } catch (e) {
+        console.error('❌ Background task failed:', e.message);
+      }
+    });
+
   } catch (error) {
     console.error('❌ ORDER ERROR:', error);
     await session.abortTransaction();
@@ -331,7 +343,7 @@ router.get('/:id/invoice', protect, async (req, res) => {
     doc.fillColor(textDark).fontSize(10).text(order.shippingFee === 0 ? 'FREE' : `Rs.${order.shippingFee}`, totalsX + 95, y, { width: 90, align: 'right' });
 
     y += 18;
-    
+
 
     if (order.discount > 0) {
       y += 18;
@@ -382,14 +394,14 @@ router.get('/:id/invoice', protect, async (req, res) => {
 // Number to words helper
 function numberToWords(num) {
   num = Math.round(num);
-  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
-  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
   if (num === 0) return 'Zero';
   if (num < 20) return ones[num];
-  if (num < 100) return tens[Math.floor(num/10)] + (num%10 ? ' ' + ones[num%10] : '');
-  if (num < 1000) return ones[Math.floor(num/100)] + ' Hundred' + (num%100 ? ' and ' + numberToWords(num%100) : '');
-  if (num < 100000) return numberToWords(Math.floor(num/1000)) + ' Thousand' + (num%1000 ? ' ' + numberToWords(num%1000) : '');
-  return numberToWords(Math.floor(num/100000)) + ' Lakh' + (num%100000 ? ' ' + numberToWords(num%100000) : '');
+  if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
+  if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' and ' + numberToWords(num % 100) : '');
+  if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + numberToWords(num % 1000) : '');
+  return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + numberToWords(num % 100000) : '');
 }
 
 router.get('/:id', protect, async (req, res) => {
