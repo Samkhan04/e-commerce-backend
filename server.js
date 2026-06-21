@@ -1,6 +1,6 @@
 const express = require('express');
 const dotenv = require('dotenv');
-const cors = require('cors'); // 🔥 CORS package import karo
+const cors = require('cors'); 
 const morgan = require('morgan');
 const http = require('http');
 const https = require('https');
@@ -60,14 +60,23 @@ const app = express();
 // CORS — FIXED FOR ALL NETLIFY URLS
 // ============================
 
-const allowedOrigins = [
-  'https://velric-london.netlify.app',
-  'https://*.netlify.app',
-  'http://localhost:5500',
-  'http://127.0.0.1:5500',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000'
-];
+
+app.use(
+  cors({
+    origin: [
+      "https://velric-london.netlify.app",
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:5173"
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+);
+
+app.options("*", cors());
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
