@@ -78,33 +78,6 @@ app.use(
 
 app.options("*", cors());
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Allow all Netlify deploy previews + main URL
-  let allowOrigin = false;
-  if (!origin) {
-    allowOrigin = true;
-  } else if (allowedOrigins.includes(origin)) {
-    allowOrigin = true;
-  } else if (origin.includes('netlify.app') || origin.includes('render.com')) {
-    allowOrigin = true;
-  }
-  
-  if (origin && allowOrigin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-  
-  next();
-});
 
 // ============================
 // GLOBAL MIDDLEWARE
